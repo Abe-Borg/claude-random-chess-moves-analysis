@@ -400,7 +400,7 @@ if __name__ == "__main__":
     print("Both sides make completely random legal moves.\n")
     
     # Run simulation
-    stats = run_simulation(num_games=100000, max_moves=10000, verbose=True)
+    stats = run_simulation(num_games=10000, max_moves=200, verbose=True)
     
     # Print results
     print_results(stats)
