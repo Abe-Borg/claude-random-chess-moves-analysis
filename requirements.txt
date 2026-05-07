@@ -1,3 +1,1 @@
-# No third-party dependencies. Both simulations use only the Python
-# standard library (random, dataclasses, typing, collections, time).
-# Requires Python 3.8+.
+chess>=1.11

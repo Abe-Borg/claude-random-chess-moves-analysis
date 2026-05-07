@@ -12,26 +12,25 @@ purely random play.
 | `kr_vs_k_simulation.py` | White: King + Rook. Black: lone King. |
 | `kr_vs_kr_simulation.py` | Each side: King + Rook (symmetric). |
 
-Both scripts use a hand-rolled move generator (no `python-chess` dependency)
-that enforces all rules relevant to king-and-rook endgames: kings can't stand
-adjacent or move into check, rook moves are filtered for self-pins, the rook
-can be captured if undefended, and starting positions are rejected if they are
-already terminal.
+Legal-move generation, turn tracking, and check/checkmate/stalemate
+detection are delegated to [`python-chess`](https://python-chess.readthedocs.io/)
+(installed from PyPI as the `chess` package). Each random game just
+samples uniformly from `board.legal_moves`, pushes the choice, and asks
+the library whether the position is terminal.
 
-Rules that don't apply to these piece sets (castling, en passant, promotion)
-are omitted. The 50-move rule and threefold repetition are **not** enforced;
-games that would otherwise be drawn by repetition are instead capped by a
-`max_moves` limit and reported as `max_moves`.
+The 50-move rule and threefold repetition are **deliberately not consulted**,
+even though `python-chess` can detect them. Games that would otherwise be
+drawn by those rules continue until checkmate, stalemate, the rook(s) being
+captured, or the `max_moves` cap is hit. This preserves the original
+"random play to material draw or accidental mate" experiment.
 
 ## Requirements
 
-Python 3.8+ (uses `dataclasses` and `typing`). No third-party packages.
+Python 3.8+ and `python-chess`.
 
 ```bash
-python3 --version
+pip install -r requirements.txt
 ```
-
-`requirements.txt` is intentionally empty.
 
 ## Running
 
@@ -69,6 +68,6 @@ Each run prints counts, percentages, and move-count statistics
 .
 ├── kr_vs_k_simulation.py    # K+R vs K
 ├── kr_vs_kr_simulation.py   # K+R vs K+R
-├── requirements.txt         # empty (stdlib only)
+├── requirements.txt         # python-chess
 └── README.md
 ```
