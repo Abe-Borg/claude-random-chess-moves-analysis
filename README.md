@@ -7,10 +7,11 @@ purely random play.
 
 ## Simulations
 
-| Script | Setup |
-| --- | --- |
-| `kr_vs_k_simulation.py` | White: King + Rook. Black: lone King. |
-| `kr_vs_kr_simulation.py` | Each side: King + Rook (symmetric). |
+| Experiment | Script | Setup |
+| --- | --- | --- |
+| `kr_vs_k`  | `kr_vs_k_simulation.py`  | White: King + Rook. Black: lone King. Random board placement. |
+| `kr_vs_kr` | `kr_vs_kr_simulation.py` | Each side: King + Rook (symmetric). Random board placement. |
+| `standard` | `standard_simulation.py` | Standard chess starting position; full rules (castling, en passant, promotion). |
 
 Legal-move generation, turn tracking, and check/checkmate/stalemate
 detection are delegated to [`python-chess`](https://python-chess.readthedocs.io/)
@@ -34,21 +35,25 @@ pip install -r requirements.txt
 
 ## Running
 
-From the project root:
+Use the `run.py` dispatcher to pick which experiment to run:
 
 ```bash
-python3 kr_vs_k_simulation.py
-python3 kr_vs_kr_simulation.py
+python3 run.py kr_vs_k
+python3 run.py kr_vs_kr
+python3 run.py standard
 ```
 
-Each script runs 10,000 games with a 200-move cap and prints a summary.
+Optional flags: `--num-games N`, `--max-moves M`, `--quiet`. Defaults are
+10,000 games with a 200-ply cap for the K+R sims and a 1,000-ply cap for
+`standard`.
 
-To customize, import and call `run_simulation` directly:
+Each simulation module is also runnable standalone (`python3
+standard_simulation.py`) and exposes a programmatic API:
 
 ```python
-from kr_vs_kr_simulation import run_simulation, print_results
+from standard_simulation import run_simulation, print_results
 
-stats = run_simulation(num_games=50_000, max_moves=500, verbose=True)
+stats = run_simulation(num_games=50_000, max_moves=1_000, verbose=True)
 print_results(stats)
 ```
 
@@ -59,15 +64,18 @@ Each run prints counts, percentages, and move-count statistics
 
 - `checkmate` / `white_checkmate` / `black_checkmate`
 - `stalemate`
-- `insufficient_material` (rook(s) captured, leaving K vs K)
+- `insufficient_material` — rook(s) captured for the K+R sims, real FIDE
+  insufficient-material rule (K vs K, K+B vs K, K+N vs K, etc.) for `standard`
 - `max_moves` (move cap hit before a terminal state)
 
 ## Repository layout
 
 ```
 .
-├── kr_vs_k_simulation.py    # K+R vs K
-├── kr_vs_kr_simulation.py   # K+R vs K+R
+├── run.py                   # CLI dispatcher
+├── kr_vs_k_simulation.py    # K+R vs K, random placement
+├── kr_vs_kr_simulation.py   # K+R vs K+R, random placement
+├── standard_simulation.py   # full chess from the standard start
 ├── requirements.txt         # python-chess
 └── README.md
 ```
