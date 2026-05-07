@@ -6,284 +6,74 @@ Both sides make completely random legal moves.
 
 Tracks outcomes: white checkmate, black checkmate, stalemate,
 insufficient material (both rooks captured), and move limits.
+
+Legal-move generation, turn tracking, and check/checkmate detection are
+delegated to python-chess. The 50-move rule and threefold repetition are
+deliberately not consulted.
 """
 
 import random
-from dataclasses import dataclass
-from typing import List, Tuple, Optional, Set
-from collections import defaultdict
 import time
+from collections import defaultdict
+from typing import Tuple
+
+import chess
 
 
-@dataclass(frozen=True)
-class Square:
-    file: int
-    rank: int
+def random_starting_position() -> chess.Board:
+    """Generate a random legal starting position with WK, WR, BK, BR."""
+    while True:
+        wk_sq, wr_sq, bk_sq, br_sq = random.sample(chess.SQUARES, 4)
 
-    def is_valid(self) -> bool:
-        return 0 <= self.file <= 7 and 0 <= self.rank <= 7
+        board = chess.Board.empty()
+        board.set_piece_at(wk_sq, chess.Piece(chess.KING, chess.WHITE))
+        board.set_piece_at(wr_sq, chess.Piece(chess.ROOK, chess.WHITE))
+        board.set_piece_at(bk_sq, chess.Piece(chess.KING, chess.BLACK))
+        board.set_piece_at(br_sq, chess.Piece(chess.ROOK, chess.BLACK))
+        board.turn = chess.WHITE
 
-    def __str__(self) -> str:
-        return f"{'abcdefgh'[self.file]}{self.rank + 1}"
-
-    def distance(self, other: 'Square') -> int:
-        return max(abs(self.file - other.file), abs(self.rank - other.rank))
-
-
-@dataclass
-class Position:
-    white_king: Square
-    white_rook: Optional[Square]
-    black_king: Square
-    black_rook: Optional[Square]
-    white_to_move: bool = True
-
-    def copy(self) -> 'Position':
-        return Position(
-            white_king=self.white_king,
-            white_rook=self.white_rook,
-            black_king=self.black_king,
-            black_rook=self.black_rook,
-            white_to_move=self.white_to_move,
-        )
-
-
-Move = Tuple[str, Square, Square]
-
-
-def squares_between(sq1: Square, sq2: Square) -> List[Square]:
-    squares = []
-    if sq1.file == sq2.file:
-        step = 1 if sq2.rank > sq1.rank else -1
-        for r in range(sq1.rank + step, sq2.rank, step):
-            squares.append(Square(sq1.file, r))
-    elif sq1.rank == sq2.rank:
-        step = 1 if sq2.file > sq1.file else -1
-        for f in range(sq1.file + step, sq2.file, step):
-            squares.append(Square(f, sq1.rank))
-    return squares
-
-
-def rook_attacks(square: Square, rook: Optional[Square], blockers: Set[Square]) -> bool:
-    if rook is None:
-        return False
-    if square == rook:
-        return False
-    if square.file != rook.file and square.rank != rook.rank:
-        return False
-    for between in squares_between(rook, square):
-        if between in blockers:
-            return False
-    return True
-
-
-def king_attacks(square: Square, king: Square) -> bool:
-    return square.distance(king) == 1 and square != king
-
-
-def is_square_attacked(pos: Position, square: Square, by_white: bool,
-                       ignore: Optional[Square] = None) -> bool:
-    """
-    Is `square` attacked by the given side?
-    `ignore`: a square that should NOT count as a blocker (e.g. the moving
-    king's old square when checking whether its destination is safe).
-    """
-    if by_white:
-        attacker_king = pos.white_king
-        attacker_rook = pos.white_rook
-        other_king = pos.black_king
-        other_rook = pos.black_rook
-    else:
-        attacker_king = pos.black_king
-        attacker_rook = pos.black_rook
-        other_king = pos.white_king
-        other_rook = pos.white_rook
-
-    if king_attacks(square, attacker_king):
-        return True
-
-    blockers: Set[Square] = {attacker_king, other_king}
-    if other_rook is not None:
-        blockers.add(other_rook)
-    if ignore is not None:
-        blockers.discard(ignore)
-
-    return rook_attacks(square, attacker_rook, blockers)
-
-
-def is_in_check(pos: Position, white: bool) -> bool:
-    king = pos.white_king if white else pos.black_king
-    return is_square_attacked(pos, king, by_white=not white)
-
-
-def king_destinations(king_pos: Square) -> List[Square]:
-    moves = []
-    for df in (-1, 0, 1):
-        for dr in (-1, 0, 1):
-            if df == 0 and dr == 0:
-                continue
-            sq = Square(king_pos.file + df, king_pos.rank + dr)
-            if sq.is_valid():
-                moves.append(sq)
-    return moves
-
-
-def rook_destinations(rook_pos: Square, occupied: Set[Square]) -> List[Square]:
-    moves = []
-    for df, dr in ((0, 1), (0, -1), (1, 0), (-1, 0)):
-        for dist in range(1, 8):
-            sq = Square(rook_pos.file + df * dist, rook_pos.rank + dr * dist)
-            if not sq.is_valid():
-                break
-            if sq in occupied:
-                moves.append(sq)
-                break
-            moves.append(sq)
-    return moves
-
-
-def get_legal_moves(pos: Position) -> List[Move]:
-    if pos.white_to_move:
-        own_king, own_rook = pos.white_king, pos.white_rook
-        enemy_king, enemy_rook = pos.black_king, pos.black_rook
-    else:
-        own_king, own_rook = pos.black_king, pos.black_rook
-        enemy_king, enemy_rook = pos.white_king, pos.white_rook
-
-    moves: List[Move] = []
-
-    # King moves
-    for dest in king_destinations(own_king):
-        if own_rook is not None and dest == own_rook:
+        if not board.is_valid():
             continue
-        if dest == enemy_king:
+        if board.is_checkmate() or board.is_stalemate():
             continue
-        if dest.distance(enemy_king) <= 1:
-            continue
-        # If destination is the enemy rook, capturing removes it as attacker.
-        captures_rook = (enemy_rook is not None and dest == enemy_rook)
-        # Check if dest is attacked by enemy, treating own king's old square
-        # as empty (it moved away) and ignoring a captured rook.
-        temp = pos.copy()
-        if pos.white_to_move:
-            temp.white_king = dest
-            if captures_rook:
-                temp.black_rook = None
-        else:
-            temp.black_king = dest
-            if captures_rook:
-                temp.white_rook = None
-        if is_in_check(temp, pos.white_to_move):
-            continue
-        moves.append(('K', own_king, dest))
-
-    # Rook moves
-    if own_rook is not None:
-        occupied: Set[Square] = {own_king, enemy_king}
-        if enemy_rook is not None:
-            occupied.add(enemy_rook)
-        for dest in rook_destinations(own_rook, occupied):
-            if dest == own_king:
-                continue
-            if dest == enemy_king:
-                continue  # cannot capture a king
-            temp = pos.copy()
-            captures_rook = (enemy_rook is not None and dest == enemy_rook)
-            if pos.white_to_move:
-                temp.white_rook = dest
-                if captures_rook:
-                    temp.black_rook = None
-            else:
-                temp.black_rook = dest
-                if captures_rook:
-                    temp.white_rook = None
-            if is_in_check(temp, pos.white_to_move):
-                continue
-            moves.append(('R', own_rook, dest))
-
-    return moves
+        return board
 
 
-def apply_move(pos: Position, move: Move) -> Position:
-    piece, _from, to = move
-    new_pos = pos.copy()
-
-    if pos.white_to_move:
-        if piece == 'K':
-            new_pos.white_king = to
-        else:  # 'R'
-            new_pos.white_rook = to
-        if pos.black_rook is not None and to == pos.black_rook:
-            new_pos.black_rook = None
-    else:
-        if piece == 'K':
-            new_pos.black_king = to
-        else:
-            new_pos.black_rook = to
-        if pos.white_rook is not None and to == pos.white_rook:
-            new_pos.white_rook = None
-
-    new_pos.white_to_move = not pos.white_to_move
-    return new_pos
-
-
-def get_game_status(pos: Position) -> str:
+def get_game_status(board: chess.Board) -> str:
     """
     'ongoing', 'white_checkmate', 'black_checkmate', 'stalemate',
-    'insufficient_material'.
+    or 'insufficient_material'.
+
+    After board.push(move), board.turn is the side that has just been
+    handed the move (i.e. the side that was potentially mated).
     """
-    if pos.white_rook is None and pos.black_rook is None:
+    white_rook_gone = not board.pieces(chess.ROOK, chess.WHITE)
+    black_rook_gone = not board.pieces(chess.ROOK, chess.BLACK)
+    if white_rook_gone and black_rook_gone:
         return 'insufficient_material'
 
-    moves = get_legal_moves(pos)
-    if moves:
-        return 'ongoing'
-
-    if pos.white_to_move:
-        # White has no legal moves
-        return 'black_checkmate' if is_in_check(pos, white=True) else 'stalemate'
-    else:
-        return 'white_checkmate' if is_in_check(pos, white=False) else 'stalemate'
+    if board.is_checkmate():
+        return 'white_checkmate' if board.turn == chess.WHITE else 'black_checkmate'
+    if board.is_stalemate():
+        return 'stalemate'
+    return 'ongoing'
 
 
-def random_starting_position() -> Position:
-    while True:
-        squares = random.sample(range(64), 4)
-        wk = Square(squares[0] % 8, squares[0] // 8)
-        wr = Square(squares[1] % 8, squares[1] // 8)
-        bk = Square(squares[2] % 8, squares[2] // 8)
-        br = Square(squares[3] % 8, squares[3] // 8)
+def play_random_game(max_moves: int = 1000) -> Tuple[str, int, chess.Board]:
+    board = random_starting_position()
 
-        if wk.distance(bk) <= 1:
-            continue
-
-        pos = Position(white_king=wk, white_rook=wr,
-                       black_king=bk, black_rook=br,
-                       white_to_move=True)
-
-        # Black can't already be in check when it's White's turn.
-        if is_in_check(pos, white=False):
-            continue
-        if get_game_status(pos) != 'ongoing':
-            continue
-        return pos
-
-
-def play_random_game(max_moves: int = 1000) -> Tuple[str, int, Position]:
-    pos = random_starting_position()
-
-    for move_num in range(max_moves):
-        moves = get_legal_moves(pos)
+    for ply in range(max_moves):
+        moves = list(board.legal_moves)
         if not moves:
-            return (get_game_status(pos), move_num, pos)
+            return (get_game_status(board), ply, board)
 
-        pos = apply_move(pos, random.choice(moves))
+        board.push(random.choice(moves))
 
-        status = get_game_status(pos)
+        status = get_game_status(board)
         if status != 'ongoing':
-            return (status, move_num + 1, pos)
+            return (status, ply + 1, board)
 
-    return ('max_moves', max_moves, pos)
+    return ('max_moves', max_moves, board)
 
 
 def run_simulation(num_games: int = 10000, max_moves: int = 1000,
